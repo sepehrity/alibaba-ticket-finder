@@ -59,7 +59,11 @@ const getSeatsCount = ($, url) => {
 
 const ticketFinder = async urls => {
   const executablePath = await locateChrome();
-  const browser = await puppeteer.launch({ headless: true, executablePath });
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath,
+    args: ["--no-sandbox"]
+  });
 
   try {
     for (const url of urls) {
