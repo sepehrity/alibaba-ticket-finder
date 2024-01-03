@@ -1,37 +1,46 @@
-const cheerio = require('cheerio');
-const { Webhook, MessageBuilder } = require('discord-webhook-node');
-const puppeteer = require('puppeteer');
-const locateChrome = require('locate-chrome');
-require('dotenv').config()
-const sentry = new Webhook(process.env.DISCORD_WEBHOOK_URL);
+const cheerio = require("cheerio");
+const puppeteer = require("puppeteer");
+const locateChrome = require("locate-chrome");
+require("dotenv").config();
 
-const extractTicketPart = (url) => {
-  const regex = /\/([A-Z]{3}-[A-Z]{3})/;
-  const match = url.match(regex);
-  return match ? match[1] : '';
+const TOKEN = process.env.TOKEN;
+const MAIN_CHANNEL = process.env.MAIN_CHANNEL;
+const DEBUG_CHANNEL = process.env.DEBUG_CHANNEL;
+
+const sendMessage = (text, chatId) => {
+  const URL = `https://api.telegram.org/bot${TOKEN}/sendMessage?chat_id=${chatId}&text=${text}`;
+  fetch(URL);
 };
 
-const getTransportationType = (url) => {
-  if (url.includes('bus')) {
-    return '🚌 Bus';
-  } else if (url.includes('flights')) {
-    return '✈️ Plane';
-  } else if (url.includes('train')) {
-    return '🚂 Train';
+const extractTicketPart = url => {
+  const regex = /\/([A-Z]{3}-[A-Z]{3})/;
+  const match = url.match(regex);
+  return match ? match[1] : "";
+};
+
+const getTransportationType = url => {
+  if (url.includes("bus")) {
+    return "🚌 Bus";
+  } else if (url.includes("flights")) {
+    return "✈️ Plane";
+  } else if (url.includes("train")) {
+    return "🚂 Train";
   } else {
-    return 'Transportation';
+    return "Transportation";
   }
 };
 
-const getDepartingDate = (url) => {
+const getDepartingDate = url => {
   const regex = /departing=(\d{4}-\d{2}-\d{2})/;
   const match = url.match(regex);
-  return match ? match[1] : 'Unknown';
+  return match ? match[1] : "Unknown";
 };
 
 const getSeatsCount = ($, url) => {
-  const classSelector1 = '.text-grays-400.text-2.mt-2';
-  const classSelector2 = url.includes('flights') ? '.text-2.mt-1.text-danger-400' : '.mt-2.text-2.text-danger-400';
+  const classSelector1 = ".text-grays-400.text-2.mt-2";
+  const classSelector2 = url.includes("flights")
+    ? ".text-2.mt-1.text-danger-400"
+    : ".mt-2.text-2.text-danger-400";
   const elements1 = $(classSelector1);
   const elements2 = $(classSelector2);
   const elements = elements1.add(elements2);
@@ -48,8 +57,7 @@ const getSeatsCount = ($, url) => {
   return count;
 };
 
-
-const ticketFinder = async (urls) => {
+const ticketFinder = async urls => {
   const executablePath = await locateChrome();
   const browser = await puppeteer.launch({ headless: true, executablePath });
 
@@ -62,11 +70,11 @@ const ticketFinder = async (urls) => {
 
       const html = await page.content();
       const $ = cheerio.load(html);
-      let ticketText = 'انتخاب بلیط';
-      let ignoreText = 'پرواز های تکمیل ظرفیت';
-      if (url.includes('flights')) {
-        ticketText = 'انتخاب پرواز';
-        ignoreText = 'پرواز های تکمیل ظرفیت';
+      let ticketText = "انتخاب بلیط";
+      let ignoreText = "پرواز های تکمیل ظرفیت";
+      if (url.includes("flights")) {
+        ticketText = "انتخاب پرواز";
+        ignoreText = "پرواز های تکمیل ظرفیت";
       }
 
       const disabledButtons = $('button.is-disabled:contains("انتخاب پرواز")');
@@ -76,15 +84,19 @@ const ticketFinder = async (urls) => {
 
       let availableCount = 0;
       if (ticketCount > 0) {
-        const ticketsParent = $('#app > div.wrapper > main > div > div > section');
-        const availableCards = ticketsParent.children().nextAll('.available-card');
+        const ticketsParent = $(
+          "#app > div.wrapper > main > div > div > section"
+        );
+        const availableCards = ticketsParent
+          .children()
+          .nextAll(".available-card");
         availableCount = availableCards.length;
 
         // Ignore 'انتخاب پرواز' after 'پرواز های تکمیل ظرفیت'
         let ignore = false;
         availableCards.each((index, element) => {
           const cardText = $(element).text();
-          const h3Element = $(element).find('h3');
+          const h3Element = $(element).find("h3");
           const h3Text = h3Element.text().trim();
           if (h3Text === ignoreText) {
             ignore = true;
@@ -98,27 +110,20 @@ const ticketFinder = async (urls) => {
       if (ticketCount > 0) {
         const ticketPart = extractTicketPart(url);
         const departingDate = getDepartingDate(url);
-        const title = `${getTransportationType(url)} Ticket Alert (${ticketPart}) - ${departingDate}`;
-        const embed = new MessageBuilder()
-          .setTitle(title)
-          .setURL(url)
-          .setColor('#00b0f4')
-          .addField('✉️ Available Number ', ` ${ticketCount}`, true)
-          .addField('🪑 Available Seats Count', ` ${getSeatsCount($, url)}`, true, url.includes('flights'));
+        const title = `${ticketPart} - ${departingDate}`;
 
-        sentry.send(embed);
+        const availableSeatsCount = getSeatsCount($, url);
+
+        sendMessage(
+          `🚌 ${title}%0A%0A🔢 Available: ${ticketCount}%0A%0A🪑 Available Seats Count: ${availableSeatsCount}%0A%0A🔗 Link:%0A${url}`,
+          MAIN_CHANNEL
+        );
       } else if (ticketCount === 0) {
         const ticketPart = extractTicketPart(url);
         const departingDate = getDepartingDate(url);
-        const title = `${getTransportationType(url)} Ticket Alert (${ticketPart}) - ${departingDate}`;
+        const title = `${ticketPart} | ${departingDate}`;
 
-        const embed = new MessageBuilder()
-          .setTitle(title)
-          .setURL(url)
-          .setColor('#ff0000')
-          .setDescription(`🔴 No tickets available for ${ticketPart}`);
-
-        sentry.send(embed);
+        sendMessage(`No Tickets Found for ${title}`, DEBUG_CHANNEL);
       }
 
       await page.close();
@@ -132,10 +137,10 @@ const ticketFinder = async (urls) => {
 
 // Example usage with multiple URLs
 const urls = [
-  'example.com'
+  "https://www.alibaba.ir/bus/IFN-THR?departing=1402-10-16",
+  "https://www.alibaba.ir/bus/IFN-THR?departing=1402-10-17"
 ];
 
 setInterval(() => {
-  console.log('Running ticket finder...');
   ticketFinder(urls);
 }, 10000);
